@@ -1,4 +1,4 @@
-name: Nuitka Build (v8.0 - Generic)
+name: Nuitka Build (v9.0 - Generic with Dev-Skip)
 
 on:
   workflow_dispatch:
@@ -174,10 +174,23 @@ jobs:
           $reqFile = "${{ inputs.requirements_file }}"
           $packages = @()
 
-          # 跳过的包列表
+          # 不应被打包的开发/构建工具的综合列表
           $skipPackages = @(
             "pyside6_addons", "pyside6_essentials",
-            "pyside6-addons", "pyside6-essentials"
+            "pyside6-addons", "pyside6-essentials",
+            # 构建/打包工具
+            "pip", "setuptools", "wheel", "pkg-resources",
+            "nuitka", "zstandard", "ordered-set",
+            "pyinstaller", "pyinstaller-hooks-contrib",
+            "cx-freeze", "py2exe", "py2app",
+            "twine", "build", "hatch", "flit",
+            # 测试工具
+            "pytest", "pytest-cov", "pytest-runner",
+            "coverage", "nose", "mock", "tox",
+            # 代码检查与格式化工具
+            "black", "flake8", "pylint", "mypy", "isort",
+            # 文档工具
+            "sphinx"
           )
 
           if (Test-Path $reqFile) {
@@ -186,13 +199,14 @@ jobs:
               $line = $line.Trim()
               if ([string]::IsNullOrEmpty($line) -or $line.StartsWith("#")) { continue }
 
-              # 提取包名，移除版本号和额外依赖说明
               $pkgName = $line -replace '[<>=!].*$', '' -replace '\\\[.*\\\]', ''
               $pkgName = $pkgName.Trim().ToLower()
 
-              if ($pkgName -in $skipPackages) { continue }
+              if ($pkgName -in $skipPackages) {
+                Write-Host "[INFO] Skipping development/build tool: $pkgName" -ForegroundColor Yellow
+                continue
+              }
 
-              # 将 PyPI 包名映射到导入名
               $importName = switch ($pkgName) {
                 "pillow"                 { "PIL" }
                 "opencv-python"          { "cv2" }
@@ -214,7 +228,6 @@ jobs:
             }
           }
 
-          # 添加用户指定的额外包
           $extraPkgs = "${{ inputs.extra_include_packages }}"
           if ($extraPkgs) {
             $extraPkgs.Split(',') | ForEach-Object {
@@ -250,10 +263,8 @@ jobs:
           mode: ${{ inputs.build_mode }}
           low-memory: ${{ inputs.low_memory }}
           
-          # 包含从 requirements.txt 解析的包
           include-package: ${{ env.INCLUDE_PACKAGES }}
           
-          # 用于清理构建的标准选项
           nofollow-import-to: |
             pytest
             setuptools
@@ -265,17 +276,14 @@ jobs:
           noinclude-setuptools-mode: nofollow
           noinclude-unittest-mode: nofollow
           
-          # 插件和 Qt 支持
           enable-plugins: ${{ inputs.enable_pyside6 == 'true' && 'pyside6' || '' }}
           include-qt-plugins: |
             sensible
             qml
             
-          # Windows 特定选项
           windows-icon-from-ico: ${{ steps.validate.outputs.icon_exists == 'true' && inputs.icon_file || '' }}
           windows-console-mode: ${{ inputs.enable_console == 'true' && 'force' || 'disable' }}
           
-          # 输出和元数据
           output-dir: build
           assume-yes-for-downloads: true
           company-name: ${{ inputs.company_name }}

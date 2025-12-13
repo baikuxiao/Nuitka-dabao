@@ -1,0 +1,362 @@
+name: ☁️ Nuitka 云端打包工具 (v7.0)
+
+on:
+  workflow_dispatch:
+    inputs:
+      script_name:
+        description: '📄 Python 入口脚本文件名'
+        required: true
+        default: 'main.py'
+        type: string
+      
+      build_mode:
+        description: '📦 打包模式'
+        required: true
+        default: 'standalone'
+        type: choice
+        options:
+          - standalone
+          - onefile
+      
+      icon_file:
+        description: '🎨 图标文件名 (留空则不使用图标)'
+        required: false
+        default: 'exe.ico'
+        type: string
+      
+      requirements_file:
+        description: '📋 依赖文件名'
+        required: false
+        default: 'requirements.txt'
+        type: string
+      
+      python_version:
+        description: '🐍 Python 版本'
+        required: true
+        default: '3.11'
+        type: choice
+        options:
+          - '3.10'
+          - '3.11'
+          - '3.12'
+      
+      enable_console:
+        description: '🖥️ 启用控制台窗口'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      
+      enable_pyside6:
+        description: '🎯 启用 PySide6 插件'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      
+      extra_include_packages:
+        description: '📚 额外包含的包 (逗号分隔)'
+        required: false
+        default: ''
+        type: string
+      
+      product_name:
+        description: '📝 产品名称'
+        required: false
+        default: 'MyApp'
+        type: string
+      
+      product_version:
+        description: '🏷️ 产品版本'
+        required: false
+        default: '1.0.0.0'
+        type: string
+      
+      company_name:
+        description: '🏢 公司名称'
+        required: false
+        default: 'MyCompany'
+        type: string
+
+jobs:
+  build:
+    name: 🚀 Build on Windows
+    runs-on: windows-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: 📥 Check-out repository
+        uses: actions/checkout@v4
+
+      - name: 💾 Configure Pagefile
+        uses: al-cheb/configure-pagefile-action@v1.4
+        with:
+          minimum-size: 8GB
+          maximum-size: 16GB
+          disk-root: "C:"
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          architecture: 'x64'
+
+      - name: 🔍 Validate Input Files
+        id: validate
+        shell: pwsh
+        run: |
+          $hasError = $false
+          
+          $scriptFile = "${{ inputs.script_name }}"
+          if (Test-Path $scriptFile) {
+            Write-Host "✅ 入口脚本: $scriptFile" -ForegroundColor Green
+          } else {
+            Write-Host "❌ 入口脚本不存在: $scriptFile" -ForegroundColor Red
+            Get-ChildItem -Filter "*.py" | ForEach-Object { Write-Host "   可用: $($_.Name)" }
+            $hasError = $true
+          }
+          
+          $reqFile = "${{ inputs.requirements_file }}"
+          if (Test-Path $reqFile) {
+            Write-Host "✅ 依赖文件: $reqFile" -ForegroundColor Green
+          } else {
+            Write-Host "⚠️ 依赖文件不存在: $reqFile" -ForegroundColor Yellow
+          }
+          
+          $iconFile = "${{ inputs.icon_file }}"
+          $iconExists = "false"
+          if ($iconFile -and $iconFile -ne "" -and (Test-Path $iconFile)) {
+            Write-Host "✅ 图标文件: $iconFile" -ForegroundColor Green
+            $iconExists = "true"
+          } elseif ($iconFile -and $iconFile -ne "") {
+            Write-Host "⚠️ 图标文件不存在: $iconFile" -ForegroundColor Yellow
+          }
+          echo "icon_exists=$iconExists" >> $env:GITHUB_OUTPUT
+          
+          if ($hasError) { exit 1 }
+
+      - name: 📦 Install Dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install nuitka zstandard ordered-set
+          
+          $reqFile = "${{ inputs.requirements_file }}"
+          if (Test-Path $reqFile) {
+            Write-Host ">>> 安装 $reqFile 中的所有依赖" -ForegroundColor Yellow
+            python -m pip install -r $reqFile
+          }
+          
+          Write-Host "`n✅ 依赖安装完成" -ForegroundColor Green
+          python -m pip list
+
+      - name: 🔬 Verify Modules
+        shell: pwsh
+        run: |
+          python -c "import rembg; print('✅ rembg:', rembg.__file__)" 2>&1
+          python -c "import onnxruntime; print('✅ onnxruntime:', onnxruntime.__file__)" 2>&1
+          python -c "import PySide6; print('✅ PySide6:', PySide6.__file__)" 2>&1
+
+      - name: 🔧 Generate Nuitka Parameters
+        id: nuitka_params
+        shell: pwsh
+        run: |
+          $reqFile = "${{ inputs.requirements_file }}"
+          $packages = @()
+          $packageData = @()
+          
+          if (Test-Path $reqFile) {
+            $content = Get-Content $reqFile
+            foreach ($line in $content) {
+              $line = $line.Trim()
+              if ([string]::IsNullOrEmpty($line) -or $line.StartsWith("#")) { continue }
+              
+              $pkgName = $line -replace '[<>=!].*$', '' -replace '\[.*\]', ''
+              $pkgName = $pkgName.Trim().ToLower()
+              
+              $importName = switch ($pkgName) {
+                "pillow" { "PIL" }
+                "opencv-python" { "cv2" }
+                "opencv-python-headless" { "cv2" }
+                "scikit-image" { "skimage" }
+                "pyside6" { "PySide6" }
+                "pyside6_addons" { $null }
+                "pyside6_essentials" { $null }
+                default { $pkgName -replace '-', '_' }
+              }
+              
+              if ($importName) {
+                $packages += $importName
+                if ($importName -in @("rembg", "onnxruntime", "pooch", "PySide6")) {
+                  $packageData += $importName
+                }
+              }
+            }
+          }
+          
+          $extraPkgs = "${{ inputs.extra_include_packages }}"
+          if ($extraPkgs) {
+            $extraPkgs.Split(',') | ForEach-Object {
+              $pkg = $_.Trim()
+              if ($pkg -and $pkg -notin $packages) {
+                $packages += $pkg
+                $packageData += $pkg
+              }
+            }
+          }
+          
+          $packagesStr = $packages -join "`n"
+          $packageDataStr = $packageData -join "`n"
+          
+          Write-Host "Include packages:" -ForegroundColor Cyan
+          Write-Host $packagesStr
+          Write-Host "`nInclude package data:" -ForegroundColor Cyan
+          Write-Host $packageDataStr
+          
+          echo "INCLUDE_PACKAGES<<EOF" >> $env:GITHUB_ENV
+          echo $packagesStr >> $env:GITHUB_ENV
+          echo "EOF" >> $env:GITHUB_ENV
+          
+          echo "INCLUDE_PACKAGE_DATA<<EOF" >> $env:GITHUB_ENV
+          echo $packageDataStr >> $env:GITHUB_ENV
+          echo "EOF" >> $env:GITHUB_ENV
+
+      - name: 📁 Prepare Assets
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "assets")) {
+            New-Item -ItemType Directory -Path "assets" -Force | Out-Null
+          }
+          $iconFile = "${{ inputs.icon_file }}"
+          if ($iconFile -and (Test-Path $iconFile)) {
+            Copy-Item $iconFile -Destination "assets/" -Force
+          }
+
+      - name: 🔨 Build with Nuitka (with icon)
+        if: steps.validate.outputs.icon_exists == 'true'
+        uses: Nuitka/Nuitka-Action@main
+        with:
+          nuitka-version: main
+          script-name: ${{ inputs.script_name }}
+          mode: ${{ inputs.build_mode }}
+          include-package: ${{ env.INCLUDE_PACKAGES }}
+          include-package-data: ${{ env.INCLUDE_PACKAGE_DATA }}
+          nofollow-import-to: |
+            pytest
+            setuptools
+            distutils
+            unittest
+            test
+            tests
+          enable-plugins: ${{ inputs.enable_pyside6 == 'true' && 'pyside6' || '' }}
+          noinclude-pytest-mode: nofollow
+          noinclude-setuptools-mode: nofollow
+          noinclude-unittest-mode: nofollow
+          windows-icon-from-ico: ${{ inputs.icon_file }}
+          windows-console-mode: ${{ inputs.enable_console == 'true' && 'force' || 'disable' }}
+          output-dir: build
+          assume-yes-for-downloads: true
+          company-name: ${{ inputs.company_name }}
+          product-name: ${{ inputs.product_name }}
+          file-version: ${{ inputs.product_version }}
+          product-version: ${{ inputs.product_version }}
+          file-description: ${{ inputs.product_name }}
+
+      - name: 🔨 Build with Nuitka (without icon)
+        if: steps.validate.outputs.icon_exists != 'true'
+        uses: Nuitka/Nuitka-Action@main
+        with:
+          nuitka-version: main
+          script-name: ${{ inputs.script_name }}
+          mode: ${{ inputs.build_mode }}
+          include-package: ${{ env.INCLUDE_PACKAGES }}
+          include-package-data: ${{ env.INCLUDE_PACKAGE_DATA }}
+          nofollow-import-to: |
+            pytest
+            setuptools
+            distutils
+            unittest
+            test
+            tests
+          enable-plugins: ${{ inputs.enable_pyside6 == 'true' && 'pyside6' || '' }}
+          noinclude-pytest-mode: nofollow
+          noinclude-setuptools-mode: nofollow
+          noinclude-unittest-mode: nofollow
+          windows-console-mode: ${{ inputs.enable_console == 'true' && 'force' || 'disable' }}
+          output-dir: build
+          assume-yes-for-downloads: true
+          company-name: ${{ inputs.company_name }}
+          product-name: ${{ inputs.product_name }}
+          file-version: ${{ inputs.product_version }}
+          product-version: ${{ inputs.product_version }}
+          file-description: ${{ inputs.product_name }}
+
+      - name: 📋 Verify Build Output
+        shell: pwsh
+        run: |
+          Write-Host "========================================" -ForegroundColor Cyan
+          Write-Host "         验证构建输出" -ForegroundColor Cyan
+          Write-Host "========================================" -ForegroundColor Cyan
+          
+          if (Test-Path "build") {
+            Get-ChildItem -Path "build" -Recurse -Depth 2 | ForEach-Object {
+              Write-Host $_.FullName
+            }
+            
+            $distDirs = Get-ChildItem -Path "build" -Filter "*.dist" -Directory
+            foreach ($dist in $distDirs) {
+              Write-Host "`n检查 $($dist.Name):" -ForegroundColor Cyan
+              
+              $rembgPath = Join-Path $dist.FullName "rembg"
+              if (Test-Path $rembgPath) {
+                Write-Host "✅ rembg 已打包" -ForegroundColor Green
+              } else {
+                Write-Host "❌ rembg 未打包" -ForegroundColor Red
+              }
+              
+              $onnxPath = Join-Path $dist.FullName "onnxruntime"
+              if (Test-Path $onnxPath) {
+                Write-Host "✅ onnxruntime 已打包" -ForegroundColor Green
+              } else {
+                Write-Host "❌ onnxruntime 未打包" -ForegroundColor Red
+              }
+            }
+          } else {
+            Write-Host "❌ build 目录不存在" -ForegroundColor Red
+          }
+
+      - name: 📤 Upload Artifact (standalone)
+        if: inputs.build_mode == 'standalone'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.product_name }}-${{ inputs.product_version }}-standalone
+          path: build/*.dist/
+          include-hidden-files: true
+          retention-days: 30
+
+      - name: 📤 Upload Artifact (onefile)
+        if: inputs.build_mode == 'onefile'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.product_name }}-${{ inputs.product_version }}-onefile
+          path: build/*.exe
+          retention-days: 30
+
+      - name: 📊 Build Summary
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "========================================" -ForegroundColor Green
+          Write-Host "         构建完成!" -ForegroundColor Green
+          Write-Host "========================================" -ForegroundColor Green
+          Write-Host ""
+          Write-Host "产品名称: ${{ inputs.product_name }}" -ForegroundColor Cyan
+          Write-Host "版本: ${{ inputs.product_version }}" -ForegroundColor Cyan
+          Write-Host "打包模式: ${{ inputs.build_mode }}" -ForegroundColor Cyan
+          Write-Host "Python 版本: ${{ inputs.python_version }}" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "请在 Actions 页面下载构建产物" -ForegroundColor Yellow

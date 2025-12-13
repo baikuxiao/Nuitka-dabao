@@ -1,4 +1,4 @@
-name: Nuitka Build (v7.1)
+name: Nuitka Build (v7.2)
 
 on:
   workflow_dispatch:
@@ -167,18 +167,15 @@ jobs:
           $env:PYTHONIOENCODING = "utf-8"
           
           Write-Host ">>> Verifying installed modules" -ForegroundColor Yellow
+          python -c "import sys; print('Python:', sys.version)"
           
-          $modules = @("rembg", "onnxruntime", "PySide6")
-          foreach ($mod in $modules) {
-            try {
-              $result = python -c "import $mod; print($mod.__file__)" 2>&1
-              if ($LASTEXITCODE -eq 0) {
-                Write-Host "[OK] $mod installed: $result" -ForegroundColor Green
-              } else {
-                Write-Host "[WARN] $mod not available" -ForegroundColor Yellow
-              }
-            } catch {
-              Write-Host "[WARN] $mod not available" -ForegroundColor Yellow
+          $testModules = @("rembg", "onnxruntime", "PySide6", "cv2", "numpy", "PIL")
+          foreach ($mod in $testModules) {
+            $result = python -c "import $mod" 2>&1
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "[OK] $mod" -ForegroundColor Green
+            } else {
+              Write-Host "[SKIP] $mod not installed" -ForegroundColor Yellow
             }
           }
 
@@ -191,31 +188,55 @@ jobs:
           $packages = @()
           $packageData = @()
           
+          $packageMapping = @{
+            "pillow" = "PIL"
+            "opencv-python" = "cv2"
+            "opencv-python-headless" = "cv2"
+            "scikit-image" = "skimage"
+            "scikit-learn" = "sklearn"
+            "pyside6" = "PySide6"
+            "pyqt5" = "PyQt5"
+            "pyqt6" = "PyQt6"
+            "beautifulsoup4" = "bs4"
+          }
+          
+          $skipPackages = @(
+            "pyside6_addons", "pyside6_essentials",
+            "pyside6-addons", "pyside6-essentials",
+            "pip", "setuptools", "wheel"
+          )
+          
+          $dataPackages = @("rembg", "onnxruntime", "pooch", "PySide6", "cv2")
+          
           if (Test-Path $reqFile) {
             $content = Get-Content $reqFile -Encoding UTF8
             foreach ($line in $content) {
               $line = $line.Trim()
               if ([string]::IsNullOrEmpty($line) -or $line.StartsWith("#")) { continue }
               
-              $pkgName = $line -replace '[<>=!].*$', '' -replace '\[.*\]', ''
+              $pkgName = $line -replace '[<>=!~].*$', '' -replace '\[.*\]', ''
               $pkgName = $pkgName.Trim().ToLower()
               
-              $importName = switch ($pkgName) {
-                "pillow" { "PIL" }
-                "opencv-python" { "cv2" }
-                "opencv-python-headless" { "cv2" }
-                "scikit-image" { "skimage" }
-                "pyside6" { "PySide6" }
-                "pyside6_addons" { $null }
-                "pyside6_essentials" { $null }
-                default { $pkgName -replace '-', '_' }
+              if ($pkgName -in $skipPackages) {
+                Write-Host "[SKIP] $pkgName" -ForegroundColor Gray
+                continue
               }
               
-              if ($importName) {
+              if ($packageMapping.ContainsKey($pkgName)) {
+                $importName = $packageMapping[$pkgName]
+              } else {
+                $importName = $pkgName -replace '-', '_'
+              }
+              
+              $testResult = python -c "import $importName" 2>&1
+              if ($LASTEXITCODE -eq 0) {
                 $packages += $importName
-                if ($importName -in @("rembg", "onnxruntime", "pooch", "PySide6")) {
+                Write-Host "[ADD] $importName" -ForegroundColor Green
+                if ($importName -in $dataPackages) {
                   $packageData += $importName
                 }
+              } else {
+                Write-Host "[WARN] Cannot import $importName, skipping" -ForegroundColor Yellow
               }
             }
           }
@@ -227,17 +248,22 @@ jobs:
               if ($pkg -and $pkg -notin $packages) {
                 $packages += $pkg
                 $packageData += $pkg
+                Write-Host "[ADD EXTRA] $pkg" -ForegroundColor Cyan
               }
             }
           }
           
+          $packages = $packages | Select-Object -Unique
+          $packageData = $packageData | Select-Object -Unique
+          
           $packagesStr = $packages -join "`n"
           $packageDataStr = $packageData -join "`n"
           
-          Write-Host "Include packages:" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "Final include-package list:" -ForegroundColor Cyan
           Write-Host $packagesStr
           Write-Host ""
-          Write-Host "Include package data:" -ForegroundColor Cyan
+          Write-Host "Final include-package-data list:" -ForegroundColor Cyan
           Write-Host $packageDataStr
           
           echo "INCLUDE_PACKAGES<<EOF" >> $env:GITHUB_ENV
@@ -259,7 +285,6 @@ jobs:
             Copy-Item $iconFile -Destination "assets/" -Force
             Write-Host "Icon copied to assets/" -ForegroundColor Green
           }
-
       - name: Build with Nuitka (with icon)
         if: steps.validate.outputs.icon_exists == 'true'
         uses: Nuitka/Nuitka-Action@main
@@ -268,7 +293,7 @@ jobs:
           script-name: ${{ inputs.script_name }}
           mode: ${{ inputs.build_mode }}
           include-package: ${{ env.INCLUDE_PACKAGES }}
-          include-package-data: ${{ env.INCLUDE_PACKAGE_DATA }}
+          include-package-${{ env.INCLUDE_PACKAGE_DATA }}
           nofollow-import-to: |
             pytest
             setuptools
@@ -276,7 +301,11 @@ jobs:
             unittest
             test
             tests
+            tkinter
           enable-plugins: ${{ inputs.enable_pyside6 == 'true' && 'pyside6' || '' }}
+          include-qt-plugins: |
+            sensible
+            qml
           noinclude-pytest-mode: nofollow
           noinclude-setuptools-mode: nofollow
           noinclude-unittest-mode: nofollow
@@ -298,7 +327,7 @@ jobs:
           script-name: ${{ inputs.script_name }}
           mode: ${{ inputs.build_mode }}
           include-package: ${{ env.INCLUDE_PACKAGES }}
-          include-package-data: ${{ env.INCLUDE_PACKAGE_DATA }}
+          include-package-${{ env.INCLUDE_PACKAGE_DATA }}
           nofollow-import-to: |
             pytest
             setuptools
@@ -306,7 +335,11 @@ jobs:
             unittest
             test
             tests
+            tkinter
           enable-plugins: ${{ inputs.enable_pyside6 == 'true' && 'pyside6' || '' }}
+          include-qt-plugins: |
+            sensible
+            qml
           noinclude-pytest-mode: nofollow
           noinclude-setuptools-mode: nofollow
           noinclude-unittest-mode: nofollow
@@ -338,29 +371,24 @@ jobs:
               Write-Host ""
               Write-Host "Checking $($dist.Name):" -ForegroundColor Cyan
               
-              $rembgPath = Join-Path $dist.FullName "rembg"
-              if (Test-Path $rembgPath) {
-                Write-Host "[OK] rembg packaged" -ForegroundColor Green
-              } else {
-                Write-Host "[MISSING] rembg not packaged" -ForegroundColor Red
-              }
+              $checkPaths = @(
+                @{name="rembg"; path="rembg"},
+                @{name="onnxruntime"; path="onnxruntime"},
+                @{name="PySide6"; path="PySide6"},
+                @{name="cv2"; path="cv2"},
+                @{name="numpy"; path="numpy"}
+              )
               
-              $onnxPath = Join-Path $dist.FullName "onnxruntime"
-              if (Test-Path $onnxPath) {
-                Write-Host "[OK] onnxruntime packaged" -ForegroundColor Green
-              } else {
-                Write-Host "[MISSING] onnxruntime not packaged" -ForegroundColor Red
-              }
-              
-              $pysidePath = Join-Path $dist.FullName "PySide6"
-              if (Test-Path $pysidePath) {
-                Write-Host "[OK] PySide6 packaged" -ForegroundColor Green
-              } else {
-                Write-Host "[MISSING] PySide6 not packaged" -ForegroundColor Red
+              foreach ($item in $checkPaths) {
+                $fullPath = Join-Path $dist.FullName $item.path
+                if (Test-Path $fullPath) {
+                  Write-Host "[OK] $($item.name) packaged" -ForegroundColor Green
+                } else {
+                  Write-Host "[MISSING] $($item.name) not found" -ForegroundColor Yellow
+                }
               }
             }
             
-            # Check for exe files
             $exeFiles = Get-ChildItem -Path "build" -Filter "*.exe" -Recurse
             if ($exeFiles) {
               Write-Host ""
@@ -374,7 +402,6 @@ jobs:
             Write-Host "[ERROR] Build directory not found" -ForegroundColor Red
             exit 1
           }
-
       - name: Upload Artifact (standalone)
         if: inputs.build_mode == 'standalone'
         uses: actions/upload-artifact@v4
@@ -382,8 +409,7 @@ jobs:
           name: ${{ inputs.product_name }}-${{ inputs.product_version }}-standalone
           path: build/*.dist/
           include-hidden-files: true
-          retention-days: 30
-
+          retention-days: 30    
       - name: Upload Artifact (onefile)
         if: inputs.build_mode == 'onefile'
         uses: actions/upload-artifact@v4

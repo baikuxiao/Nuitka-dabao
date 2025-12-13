@@ -1,16 +1,16 @@
-name: ☁️ Nuitka 云端打包工具 (v7.0)
+name: Nuitka Build (v7.1)
 
 on:
   workflow_dispatch:
     inputs:
       script_name:
-        description: '📄 Python 入口脚本文件名'
+        description: 'Python 入口脚本文件名'
         required: true
         default: 'main.py'
         type: string
       
       build_mode:
-        description: '📦 打包模式'
+        description: '打包模式'
         required: true
         default: 'standalone'
         type: choice
@@ -19,19 +19,19 @@ on:
           - onefile
       
       icon_file:
-        description: '🎨 图标文件名 (留空则不使用图标)'
+        description: '图标文件名 (留空则不使用图标)'
         required: false
         default: 'exe.ico'
         type: string
       
       requirements_file:
-        description: '📋 依赖文件名'
+        description: '依赖文件名'
         required: false
         default: 'requirements.txt'
         type: string
       
       python_version:
-        description: '🐍 Python 版本'
+        description: 'Python 版本'
         required: true
         default: '3.11'
         type: choice
@@ -41,7 +41,7 @@ on:
           - '3.12'
       
       enable_console:
-        description: '🖥️ 启用控制台窗口'
+        description: '启用控制台窗口'
         required: true
         default: 'false'
         type: choice
@@ -50,7 +50,7 @@ on:
           - 'true'
       
       enable_pyside6:
-        description: '🎯 启用 PySide6 插件'
+        description: '启用 PySide6 插件'
         required: true
         default: 'true'
         type: choice
@@ -59,118 +59,140 @@ on:
           - 'false'
       
       extra_include_packages:
-        description: '📚 额外包含的包 (逗号分隔)'
+        description: '额外包含的包 (逗号分隔)'
         required: false
         default: ''
         type: string
       
       product_name:
-        description: '📝 产品名称'
+        description: '产品名称'
         required: false
         default: 'MyApp'
         type: string
       
       product_version:
-        description: '🏷️ 产品版本'
+        description: '产品版本'
         required: false
         default: '1.0.0.0'
         type: string
       
       company_name:
-        description: '🏢 公司名称'
+        description: '公司名称'
         required: false
         default: 'MyCompany'
         type: string
 
+env:
+  PYTHONIOENCODING: utf-8
+  PYTHONUTF8: 1
+
 jobs:
   build:
-    name: 🚀 Build on Windows
+    name: Build on Windows
     runs-on: windows-latest
     timeout-minutes: 180
 
     steps:
-      - name: 📥 Check-out repository
+      - name: Check-out repository
         uses: actions/checkout@v4
 
-      - name: 💾 Configure Pagefile
+      - name: Configure Pagefile
         uses: al-cheb/configure-pagefile-action@v1.4
         with:
           minimum-size: 8GB
           maximum-size: 16GB
           disk-root: "C:"
 
-      - name: 🐍 Setup Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ inputs.python_version }}
           architecture: 'x64'
 
-      - name: 🔍 Validate Input Files
+      - name: Validate Input Files
         id: validate
         shell: pwsh
         run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           $hasError = $false
           
           $scriptFile = "${{ inputs.script_name }}"
           if (Test-Path $scriptFile) {
-            Write-Host "✅ 入口脚本: $scriptFile" -ForegroundColor Green
+            Write-Host "[OK] Script file: $scriptFile" -ForegroundColor Green
           } else {
-            Write-Host "❌ 入口脚本不存在: $scriptFile" -ForegroundColor Red
-            Get-ChildItem -Filter "*.py" | ForEach-Object { Write-Host "   可用: $($_.Name)" }
+            Write-Host "[ERROR] Script file not found: $scriptFile" -ForegroundColor Red
+            Get-ChildItem -Filter "*.py" | ForEach-Object { Write-Host "   Available: $($_.Name)" }
             $hasError = $true
           }
           
           $reqFile = "${{ inputs.requirements_file }}"
           if (Test-Path $reqFile) {
-            Write-Host "✅ 依赖文件: $reqFile" -ForegroundColor Green
+            Write-Host "[OK] Requirements file: $reqFile" -ForegroundColor Green
           } else {
-            Write-Host "⚠️ 依赖文件不存在: $reqFile" -ForegroundColor Yellow
+            Write-Host "[WARN] Requirements file not found: $reqFile" -ForegroundColor Yellow
           }
           
           $iconFile = "${{ inputs.icon_file }}"
           $iconExists = "false"
           if ($iconFile -and $iconFile -ne "" -and (Test-Path $iconFile)) {
-            Write-Host "✅ 图标文件: $iconFile" -ForegroundColor Green
+            Write-Host "[OK] Icon file: $iconFile" -ForegroundColor Green
             $iconExists = "true"
           } elseif ($iconFile -and $iconFile -ne "") {
-            Write-Host "⚠️ 图标文件不存在: $iconFile" -ForegroundColor Yellow
+            Write-Host "[WARN] Icon file not found: $iconFile" -ForegroundColor Yellow
           }
           echo "icon_exists=$iconExists" >> $env:GITHUB_OUTPUT
           
           if ($hasError) { exit 1 }
 
-      - name: 📦 Install Dependencies
+      - name: Install Dependencies
         shell: pwsh
         run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           python -m pip install --upgrade pip
           python -m pip install nuitka zstandard ordered-set
           
           $reqFile = "${{ inputs.requirements_file }}"
           if (Test-Path $reqFile) {
-            Write-Host ">>> 安装 $reqFile 中的所有依赖" -ForegroundColor Yellow
+            Write-Host ">>> Installing dependencies from $reqFile" -ForegroundColor Yellow
             python -m pip install -r $reqFile
           }
           
-          Write-Host "`n✅ 依赖安装完成" -ForegroundColor Green
+          Write-Host "Dependencies installed successfully" -ForegroundColor Green
           python -m pip list
 
-      - name: 🔬 Verify Modules
+      - name: Verify Modules
         shell: pwsh
         run: |
-          python -c "import rembg; print('✅ rembg:', rembg.__file__)" 2>&1
-          python -c "import onnxruntime; print('✅ onnxruntime:', onnxruntime.__file__)" 2>&1
-          python -c "import PySide6; print('✅ PySide6:', PySide6.__file__)" 2>&1
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+          $env:PYTHONIOENCODING = "utf-8"
+          
+          Write-Host ">>> Verifying installed modules" -ForegroundColor Yellow
+          
+          $modules = @("rembg", "onnxruntime", "PySide6")
+          foreach ($mod in $modules) {
+            try {
+              $result = python -c "import $mod; print($mod.__file__)" 2>&1
+              if ($LASTEXITCODE -eq 0) {
+                Write-Host "[OK] $mod installed: $result" -ForegroundColor Green
+              } else {
+                Write-Host "[WARN] $mod not available" -ForegroundColor Yellow
+              }
+            } catch {
+              Write-Host "[WARN] $mod not available" -ForegroundColor Yellow
+            }
+          }
 
-      - name: 🔧 Generate Nuitka Parameters
+      - name: Generate Nuitka Parameters
         id: nuitka_params
         shell: pwsh
         run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           $reqFile = "${{ inputs.requirements_file }}"
           $packages = @()
           $packageData = @()
           
           if (Test-Path $reqFile) {
-            $content = Get-Content $reqFile
+            $content = Get-Content $reqFile -Encoding UTF8
             foreach ($line in $content) {
               $line = $line.Trim()
               if ([string]::IsNullOrEmpty($line) -or $line.StartsWith("#")) { continue }
@@ -214,7 +236,8 @@ jobs:
           
           Write-Host "Include packages:" -ForegroundColor Cyan
           Write-Host $packagesStr
-          Write-Host "`nInclude package data:" -ForegroundColor Cyan
+          Write-Host ""
+          Write-Host "Include package data:" -ForegroundColor Cyan
           Write-Host $packageDataStr
           
           echo "INCLUDE_PACKAGES<<EOF" >> $env:GITHUB_ENV
@@ -225,7 +248,7 @@ jobs:
           echo $packageDataStr >> $env:GITHUB_ENV
           echo "EOF" >> $env:GITHUB_ENV
 
-      - name: 📁 Prepare Assets
+      - name: Prepare Assets
         shell: pwsh
         run: |
           if (-not (Test-Path "assets")) {
@@ -234,9 +257,10 @@ jobs:
           $iconFile = "${{ inputs.icon_file }}"
           if ($iconFile -and (Test-Path $iconFile)) {
             Copy-Item $iconFile -Destination "assets/" -Force
+            Write-Host "Icon copied to assets/" -ForegroundColor Green
           }
 
-      - name: 🔨 Build with Nuitka (with icon)
+      - name: Build with Nuitka (with icon)
         if: steps.validate.outputs.icon_exists == 'true'
         uses: Nuitka/Nuitka-Action@main
         with:
@@ -266,7 +290,7 @@ jobs:
           product-version: ${{ inputs.product_version }}
           file-description: ${{ inputs.product_name }}
 
-      - name: 🔨 Build with Nuitka (without icon)
+      - name: Build with Nuitka (without icon)
         if: steps.validate.outputs.icon_exists != 'true'
         uses: Nuitka/Nuitka-Action@main
         with:
@@ -295,41 +319,63 @@ jobs:
           product-version: ${{ inputs.product_version }}
           file-description: ${{ inputs.product_name }}
 
-      - name: 📋 Verify Build Output
+      - name: Verify Build Output
         shell: pwsh
         run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           Write-Host "========================================" -ForegroundColor Cyan
-          Write-Host "         验证构建输出" -ForegroundColor Cyan
+          Write-Host "         Verifying Build Output" -ForegroundColor Cyan
           Write-Host "========================================" -ForegroundColor Cyan
           
           if (Test-Path "build") {
+            Write-Host "Build directory contents:" -ForegroundColor Yellow
             Get-ChildItem -Path "build" -Recurse -Depth 2 | ForEach-Object {
               Write-Host $_.FullName
             }
             
             $distDirs = Get-ChildItem -Path "build" -Filter "*.dist" -Directory
             foreach ($dist in $distDirs) {
-              Write-Host "`n检查 $($dist.Name):" -ForegroundColor Cyan
+              Write-Host ""
+              Write-Host "Checking $($dist.Name):" -ForegroundColor Cyan
               
               $rembgPath = Join-Path $dist.FullName "rembg"
               if (Test-Path $rembgPath) {
-                Write-Host "✅ rembg 已打包" -ForegroundColor Green
+                Write-Host "[OK] rembg packaged" -ForegroundColor Green
               } else {
-                Write-Host "❌ rembg 未打包" -ForegroundColor Red
+                Write-Host "[MISSING] rembg not packaged" -ForegroundColor Red
               }
               
               $onnxPath = Join-Path $dist.FullName "onnxruntime"
               if (Test-Path $onnxPath) {
-                Write-Host "✅ onnxruntime 已打包" -ForegroundColor Green
+                Write-Host "[OK] onnxruntime packaged" -ForegroundColor Green
               } else {
-                Write-Host "❌ onnxruntime 未打包" -ForegroundColor Red
+                Write-Host "[MISSING] onnxruntime not packaged" -ForegroundColor Red
+              }
+              
+              $pysidePath = Join-Path $dist.FullName "PySide6"
+              if (Test-Path $pysidePath) {
+                Write-Host "[OK] PySide6 packaged" -ForegroundColor Green
+              } else {
+                Write-Host "[MISSING] PySide6 not packaged" -ForegroundColor Red
+              }
+            }
+            
+            # Check for exe files
+            $exeFiles = Get-ChildItem -Path "build" -Filter "*.exe" -Recurse
+            if ($exeFiles) {
+              Write-Host ""
+              Write-Host "Executable files found:" -ForegroundColor Green
+              $exeFiles | ForEach-Object {
+                $size = [math]::Round($_.Length / 1MB, 2)
+                Write-Host "  $($_.Name) - $size MB" -ForegroundColor Cyan
               }
             }
           } else {
-            Write-Host "❌ build 目录不存在" -ForegroundColor Red
+            Write-Host "[ERROR] Build directory not found" -ForegroundColor Red
+            exit 1
           }
 
-      - name: 📤 Upload Artifact (standalone)
+      - name: Upload Artifact (standalone)
         if: inputs.build_mode == 'standalone'
         uses: actions/upload-artifact@v4
         with:
@@ -338,7 +384,7 @@ jobs:
           include-hidden-files: true
           retention-days: 30
 
-      - name: 📤 Upload Artifact (onefile)
+      - name: Upload Artifact (onefile)
         if: inputs.build_mode == 'onefile'
         uses: actions/upload-artifact@v4
         with:
@@ -346,10 +392,14 @@ jobs:
           path: build/*.exe
           retention-days: 30
 
-      - name: 📊 Build Summary
+      - name: Build Summary
         shell: pwsh
         run: |
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           Write-Host ""
+          Write-Host "========================================" -ForegroundColor Green
+          Write-Host "           Build Complete!" -ForegroundColor Green
+          Write-Host "========================================" -ForegroundColor Green
           Write-Host "========================================" -ForegroundColor Green
           Write-Host "         构建完成!" -ForegroundColor Green
           Write-Host "========================================" -ForegroundColor Green

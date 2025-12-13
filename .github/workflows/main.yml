@@ -409,7 +409,8 @@ jobs:
           name: ${{ inputs.product_name }}-${{ inputs.product_version }}-standalone
           path: build/*.dist/
           include-hidden-files: true
-          retention-days: 30    
+          retention-days: 30
+
       - name: Upload Artifact (onefile)
         if: inputs.build_mode == 'onefile'
         uses: actions/upload-artifact@v4

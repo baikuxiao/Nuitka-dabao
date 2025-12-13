@@ -1,4 +1,3 @@
-yinstaller>=5.0
-Pillow
-PySide6
-
+pyinstaller>=5.0
+Pillow>=9.0
+PySide6>=6.0

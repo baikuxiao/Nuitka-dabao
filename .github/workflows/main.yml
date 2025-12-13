@@ -1,5 +1,4 @@
 name: Nuitka Build (v7.1)
-
 on:
   workflow_dispatch:
     inputs:
@@ -168,7 +167,7 @@ jobs:
           
           Write-Host ">>> Verifying installed modules" -ForegroundColor Yellow
           
-          $modules = @("rembg", "onnxruntime", "PySide6")
+          $modules = @("rembg", "onnxruntime", "PySide6", "cv2")
           foreach ($mod in $modules) {
             try {
               $result = python -c "import $mod; print($mod.__file__)" 2>&1
@@ -191,6 +190,14 @@ jobs:
           $packages = @()
           $packageData = @()
           
+          # 跳过的包列表（这些包不需要单独包含，或者是子依赖）
+          $skipPackages = @(
+            "pyside6_addons",
+            "pyside6_essentials",
+            "pyside6-addons",
+            "pyside6-essentials"
+          )
+          
           if (Test-Path $reqFile) {
             $content = Get-Content $reqFile -Encoding UTF8
             foreach ($line in $content) {
@@ -200,21 +207,36 @@ jobs:
               $pkgName = $line -replace '[<>=!].*$', '' -replace '\[.*\]', ''
               $pkgName = $pkgName.Trim().ToLower()
               
+              # 跳过不需要的包
+              if ($pkgName -in $skipPackages) { continue }
+              
+              # 包名到导入名的映射
               $importName = switch ($pkgName) {
                 "pillow" { "PIL" }
                 "opencv-python" { "cv2" }
                 "opencv-python-headless" { "cv2" }
+                "opencv_python" { "cv2" }
+                "opencv_python_headless" { "cv2" }
                 "scikit-image" { "skimage" }
+                "scikit-learn" { "sklearn" }
                 "pyside6" { "PySide6" }
-                "pyside6_addons" { $null }
-                "pyside6_essentials" { $null }
+                "pyqt5" { "PyQt5" }
+                "pyqt6" { "PyQt6" }
+                "beautifulsoup4" { "bs4" }
+                "python-dateutil" { "dateutil" }
                 default { $pkgName -replace '-', '_' }
               }
               
               if ($importName) {
-                $packages += $importName
-                if ($importName -in @("rembg", "onnxruntime", "pooch", "PySide6")) {
-                  $packageData += $importName
+                # 避免重复添加
+                if ($importName -notin $packages) {
+                  $packages += $importName
+                }
+                # 需要包含数据文件的包
+                if ($importName -in @("rembg", "onnxruntime", "pooch", "PySide6", "cv2")) {
+                  if ($importName -notin $packageData) {
+                    $packageData += $importName
+                  }
                 }
               }
             }
@@ -226,7 +248,9 @@ jobs:
               $pkg = $_.Trim()
               if ($pkg -and $pkg -notin $packages) {
                 $packages += $pkg
-                $packageData += $pkg
+                if ($pkg -notin $packageData) {
+                  $packageData += $pkg
+                }
               }
             }
           }
@@ -277,6 +301,8 @@ jobs:
             test
             tests
           enable-plugins: ${{ inputs.enable_pyside6 == 'true' && 'pyside6' || '' }}
+          include-qt-plugins: ${{ inputs.enable_pyside6 == 'true' && 'sensible,qml' || '' }}
+          noinclude-qt-plugins: ${{ inputs.enable_pyside6 == 'true' && 'qtwebengine' || '' }}
           noinclude-pytest-mode: nofollow
           noinclude-setuptools-mode: nofollow
           noinclude-unittest-mode: nofollow
@@ -307,6 +333,8 @@ jobs:
             test
             tests
           enable-plugins: ${{ inputs.enable_pyside6 == 'true' && 'pyside6' || '' }}
+          include-qt-plugins: ${{ inputs.enable_pyside6 == 'true' && 'sensible,qml' || '' }}
+          noinclude-qt-plugins: ${{ inputs.enable_pyside6 == 'true' && 'qtwebengine' || '' }}
           noinclude-pytest-mode: nofollow
           noinclude-setuptools-mode: nofollow
           noinclude-unittest-mode: nofollow
@@ -347,66 +375,4 @@ jobs:
               
               $onnxPath = Join-Path $dist.FullName "onnxruntime"
               if (Test-Path $onnxPath) {
-                Write-Host "[OK] onnxruntime packaged" -ForegroundColor Green
-              } else {
-                Write-Host "[MISSING] onnxruntime not packaged" -ForegroundColor Red
-              }
-              
-              $pysidePath = Join-Path $dist.FullName "PySide6"
-              if (Test-Path $pysidePath) {
-                Write-Host "[OK] PySide6 packaged" -ForegroundColor Green
-              } else {
-                Write-Host "[MISSING] PySide6 not packaged" -ForegroundColor Red
-              }
-            }
-            
-            # Check for exe files
-            $exeFiles = Get-ChildItem -Path "build" -Filter "*.exe" -Recurse
-            if ($exeFiles) {
-              Write-Host ""
-              Write-Host "Executable files found:" -ForegroundColor Green
-              $exeFiles | ForEach-Object {
-                $size = [math]::Round($_.Length / 1MB, 2)
-                Write-Host "  $($_.Name) - $size MB" -ForegroundColor Cyan
-              }
-            }
-          } else {
-            Write-Host "[ERROR] Build directory not found" -ForegroundColor Red
-            exit 1
-          }
-
-      - name: Upload Artifact (standalone)
-        if: inputs.build_mode == 'standalone'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.product_name }}-${{ inputs.product_version }}-standalone
-          path: build/*.dist/
-          include-hidden-files: true
-          retention-days: 30
-
-      - name: Upload Artifact (onefile)
-        if: inputs.build_mode == 'onefile'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.product_name }}-${{ inputs.product_version }}-onefile
-          path: build/*.exe
-          retention-days: 30
-
-      - name: Build Summary
-        shell: pwsh
-        run: |
-          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-          Write-Host ""
-          Write-Host "========================================" -ForegroundColor Green
-          Write-Host "           Build Complete!" -ForegroundColor Green
-          Write-Host "========================================" -ForegroundColor Green
-          Write-Host "========================================" -ForegroundColor Green
-          Write-Host "         构建完成!" -ForegroundColor Green
-          Write-Host "========================================" -ForegroundColor Green
-          Write-Host ""
-          Write-Host "产品名称: ${{ inputs.product_name }}" -ForegroundColor Cyan
-          Write-Host "版本: ${{ inputs.product_version }}" -ForegroundColor Cyan
-          Write-Host "打包模式: ${{ inputs.build_mode }}" -ForegroundColor Cyan
-          Write-Host "Python 版本: ${{ inputs.python_version }}" -ForegroundColor Cyan
-          Write-Host ""
-          Write-Host "请在 Actions 页面下载构建产物" -ForegroundColor Yellow
+                Write-Host "[OK] onnxruntime

@@ -51,7 +51,7 @@ on:
           - 'true'
           - 'false'
       low_memory:
-        description: '启用 Nuitka 低内存模式'
+        description: '启用 Nuitka 低内存模式（推荐开启，让线程数自动动态调整）'
         required: true
         default: 'true'
         type: choice
@@ -245,11 +245,10 @@ jobs:
           nuitka-version: main
           script-name: ${{ inputs.script_name }}
           mode: ${{ inputs.build_mode }}
-          low-memory: ${{ inputs.low_memory }}
+          low-memory: ${{ inputs.low_memory }}  # 强烈建议开启，让线程数自动动态调整
           
-          # 【关键优化】双线程 + 禁用 LTO + 关闭进度条，兼顾速度与稳定性
+          # 固定优化：禁用 LTO + 关闭进度条（不指定 jobs，让 low-memory 动态控制线程）
           extra-options: >-
-            --jobs=2
             --lto=no
             --no-progressbar
           

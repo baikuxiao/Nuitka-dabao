@@ -1,3 +1,21 @@
-pyinstaller>=5.0
-Pillow>=9.0
-PySide6>=6.0
+# 核心 GUI
+PySide6==6.10.1
+# 注意：Nuitka 需要明确列出三个子包（你的工作流已支持）
+pyside6-essentials==6.10.1
+pyside6-addons==6.10.1
+
+# 图像处理核心（必须）
+Pillow==12.0.0
+numpy==2.2.6
+opencv-python-headless==4.12.0.88   # 强烈推荐 headless 版（无 GUI 冲突、体积小）
+# 如果你必须用 cv2.imshow() 显示窗口，再换成 opencv-python
+
+# AI 扣图核心（必须）
+rembg==2.0.69
+onnxruntime==1.23.2                 # CPU 版就够，GPU 自动启用
+
+# GIF/视频辅助
+imageio==2.37.2
+
+# 可选但推荐（内存检测）
+psutil==7.1.3

@@ -1,5 +1,4 @@
 name: Nuitka Build (v9.0 - Generic with Dev-Skip)
-
 on:
   workflow_dispatch:
     inputs:
@@ -89,7 +88,6 @@ jobs:
     name: Build on Windows
     runs-on: windows-latest
     timeout-minutes: 180
-
     steps:
       - name: Check-out repository
         uses: actions/checkout@v4
@@ -127,17 +125,15 @@ jobs:
             Write-Host "[OK] Script file: $scriptFile" -ForegroundColor Green
           } else {
             Write-Host "[ERROR] Script file not found: $scriptFile" -ForegroundColor Red
-            Get-ChildItem -Filter "*.py" | ForEach-Object { Write-Host "   Available: $($_.Name)" }
+            Get-ChildItem -Filter "*.py" | ForEach-Object { Write-Host " Available: $($_.Name)" }
             $hasError = $true
           }
-
           $reqFile = "${{ inputs.requirements_file }}"
           if (Test-Path $reqFile) {
             Write-Host "[OK] Requirements file: $reqFile" -ForegroundColor Green
           } else {
             Write-Host "[WARN] Requirements file not found: $reqFile" -ForegroundColor Yellow
           }
-
           $iconFile = "${{ inputs.icon_file }}"
           $iconExists = "false"
           if ($iconFile -and $iconFile -ne "" -and (Test-Path $iconFile)) {
@@ -147,7 +143,6 @@ jobs:
             Write-Host "[WARN] Icon file not found: $iconFile" -ForegroundColor Yellow
           }
           echo "icon_exists=$iconExists" >> $env:GITHUB_OUTPUT
-
           if ($hasError) { exit 1 }
 
       - name: Install Dependencies
@@ -156,13 +151,11 @@ jobs:
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           python -m pip install --upgrade pip
           python -m pip install nuitka zstandard ordered-set
-
           $reqFile = "${{ inputs.requirements_file }}"
           if (Test-Path $reqFile) {
             Write-Host ">>> Installing dependencies from $reqFile" -ForegroundColor Yellow
             python -m pip install -r $reqFile
           }
-
           Write-Host "Dependencies installed successfully" -ForegroundColor Green
           python -m pip list
 
@@ -173,7 +166,6 @@ jobs:
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           $reqFile = "${{ inputs.requirements_file }}"
           $packages = @()
-
           # 不应被打包的开发/构建工具的综合列表
           $skipPackages = @(
             "pyside6_addons", "pyside6_essentials",
@@ -192,42 +184,36 @@ jobs:
             # 文档工具
             "sphinx"
           )
-
           if (Test-Path $reqFile) {
             $content = Get-Content $reqFile -Encoding UTF8
             foreach ($line in $content) {
               $line = $line.Trim()
               if ([string]::IsNullOrEmpty($line) -or $line.StartsWith("#")) { continue }
-
               $pkgName = $line -replace '[<>=!].*$', '' -replace '\\\[.*\\\]', ''
               $pkgName = $pkgName.Trim().ToLower()
-
               if ($pkgName -in $skipPackages) {
                 Write-Host "[INFO] Skipping development/build tool: $pkgName" -ForegroundColor Yellow
                 continue
               }
-
               $importName = switch ($pkgName) {
-                "pillow"                 { "PIL" }
-                "opencv-python"          { "cv2" }
+                "pillow" { "PIL" }
+                "opencv-python" { "cv2" }
                 "opencv-python-headless" { "cv2" }
-                "scikit-image"           { "skimage" }
-                "scikit-learn"           { "sklearn" }
-                "pyside6"                { "PySide6" }
-                "pyqt5"                  { "PyQt5" }
-                "pyqt6"                  { "PyQt6" }
-                "beautifulsoup4"         { "bs4" }
-                "python-dateutil"        { "dateutil" }
-                "pyyaml"                 { "yaml" }
-                default                  { $pkgName -replace '-', '_' }
+                "scikit-image" { "skimage" }
+                "scikit-learn" { "sklearn" }
+                "pyside6" { "PySide6" }
+                "pyqt5" { "PyQt5" }
+                "pyqt6" { "PyQt6" }
+                "beautifulsoup4" { "bs4" }
+                "python-dateutil" { "dateutil" }
+                "pyyaml" { "yaml" }
+                default { $pkgName -replace '-', '_' }
               }
-
               if ($importName -and $importName -notin $packages) {
                 $packages += $importName
               }
             }
           }
-
           $extraPkgs = "${{ inputs.extra_include_packages }}"
           if ($extraPkgs) {
             $extraPkgs.Split(',') | ForEach-Object {
@@ -237,12 +223,10 @@ jobs:
               }
             }
           }
-
           $packagesStr = $packages -join "`n"
           Write-Host "--- Nuitka Include Packages ---" -ForegroundColor Cyan
           Write-Host $packagesStr
           Write-Host "-------------------------------" -ForegroundColor Cyan
-
           echo "INCLUDE_PACKAGES<<EOF" >> $env:GITHUB_ENV
           echo $packagesStr >> $env:GITHUB_ENV
           echo "EOF" >> $env:GITHUB_ENV
@@ -263,6 +247,12 @@ jobs:
           mode: ${{ inputs.build_mode }}
           low-memory: ${{ inputs.low_memory }}
           
+          # 【关键优化】双线程 + 禁用 LTO + 关闭进度条，兼顾速度与稳定性
+          extra-options: >-
+            --jobs=2
+            --lto=no
+            --no-progressbar
+          
           include-package: ${{ env.INCLUDE_PACKAGES }}
           
           nofollow-import-to: |
@@ -280,7 +270,7 @@ jobs:
           include-qt-plugins: |
             sensible
             qml
-            
+           
           windows-icon-from-ico: ${{ steps.validate.outputs.icon_exists == 'true' && inputs.icon_file || '' }}
           windows-console-mode: ${{ inputs.enable_console == 'true' && 'force' || 'disable' }}
           
@@ -313,22 +303,20 @@ jobs:
         run: |
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           Write-Host "========================================" -ForegroundColor Cyan
-          Write-Host "         Verifying Build Output" -ForegroundColor Cyan
+          Write-Host " Verifying Build Output" -ForegroundColor Cyan
           Write-Host "========================================" -ForegroundColor Cyan
-
           if (Test-Path "build") {
             Write-Host "Build directory contents:" -ForegroundColor Yellow
             Get-ChildItem -Path "build" -Recurse -Depth 2 | ForEach-Object {
               Write-Host $_.FullName
             }
-
             $exeFiles = Get-ChildItem -Path "build" -Filter "*.exe" -Recurse
             if ($exeFiles) {
               Write-Host ""
               Write-Host "Executable files found:" -ForegroundColor Green
               $exeFiles | ForEach-Object {
                 $size = [math]::Round($_.Length / 1MB, 2)
-                Write-Host "  $($_.Name) - $size MB" -ForegroundColor Cyan
+                Write-Host " $($_.Name) - $size MB" -ForegroundColor Cyan
               }
             } else {
               Write-Host "[ERROR] No executable file found in the build directory!" -ForegroundColor Red
@@ -381,7 +369,7 @@ jobs:
           [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
           Write-Host ""
           Write-Host "========================================" -ForegroundColor Green
-          Write-Host "           Build Complete!" -ForegroundColor Green
+          Write-Host " Build Complete!" -ForegroundColor Green
           Write-Host "========================================" -ForegroundColor Green
           Write-Host ""
           Write-Host "Product: ${{ inputs.product_name }}" -ForegroundColor Cyan
